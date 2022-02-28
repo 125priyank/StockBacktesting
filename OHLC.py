@@ -1,3 +1,5 @@
+from collections import OrderedDict
+
 import pandas as pd
 import numpy as np
 
@@ -10,6 +12,7 @@ class OHLC:
         self.df.drop('6', axis=1, inplace=True)
         self.df.drop('Unnamed: 0', axis=1, inplace=True)
 
+        # Convert string dates to pd.Datetime
         self.df.Date = pd.DatetimeIndex(self.df.Date)
 
         # interval is in minues
@@ -18,12 +21,47 @@ class OHLC:
         # This is the number of data points in each day
         self.eachDayRows = None
 
-        # First remove wrong data rows from df
+        # Remove wrong data rows from df
         self.cleanDf()
         self.findInterval()
 
+        # Assert no extra wrong rows remain now after cleanup
+        assert self.eachDayRows*self.days == self.df.shape[0]
+
+        self.df.set_index('Date', inplace=True) 
+        
+        # Remove timezone from timestamp
+        self.df.index = [i.replace(tzinfo=None) for i in self.df.index]
+
+    def toInterval(self, minutes):
+        # Resamples df to the minutes input provided
+        OHLCV_AGG = OrderedDict((
+            ('Open', 'first'),
+            ('High', 'max'),
+            ('Low', 'min'),
+            ('Close', 'last'),
+            ('Volume', 'sum'),
+        ))
+        freq_minutes = pd.Series({
+            "1T": 1,
+            "5T": 5,
+            "10T": 10,
+            "15T": 15,
+            "30T": 30,
+            "1H": 60,
+            "2H": 60*2,
+            "4H": 60*4,
+            "8H": 60*8,
+            "1D": 60*24,
+            "1W": 60*24*7,
+            "1M": np.inf,
+        })
+
+        freq = freq_minutes.where(freq_minutes >= minutes).first_valid_index()
+        return self.df.resample(freq, label='left').agg(OHLCV_AGG).dropna()
+
     def findInterval(self):
-        mp = {}
+        mp = dict()
         i = 0
         dayCnt = 0
         while i < self.df.shape[0]:
@@ -50,7 +88,7 @@ class OHLC:
             # Return a map with 
             # keys -> number of intervals in a day
             # values -> number of days with this interval
-            mp = {}
+            mp = dict()
             i = 0
             while i < self.df.shape[0]:
                 j = i
